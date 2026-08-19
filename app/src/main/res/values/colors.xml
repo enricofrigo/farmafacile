@@ -1,0 +1,6 @@
+<resources>
+    <color name="primary">#006C4C</color>
+    <color name="onPrimary">#FFFFFF</color>
+    <color name="primaryContainer">#89F8C7</color>
+    <color name="onPrimaryContainer">#002114</color>
+</resources>
