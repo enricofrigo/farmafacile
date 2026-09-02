@@ -36,6 +36,8 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import eu.frigo.farmafacile.presentation.theme.ExpiryGoodGreen
+import eu.frigo.farmafacile.presentation.theme.ExpiryGoodGreenContainer
 import eu.frigo.farmafacile.presentation.theme.ExpiryWarningAmber
 import eu.frigo.farmafacile.presentation.theme.ExpiryWarningAmberContainer
 import java.util.concurrent.Executors
@@ -192,7 +194,7 @@ fun ScannerScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Per scansionare i codici DataMatrix sulle confezioni dei farmaci è necessario concedere l'accesso alla fotocamera.",
+                        text = "Per scansionare i codici DataMatrix sulle confezioni dei farmaci e dispositivi medici è necessario concedere l'accesso alla fotocamera.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(modifier = Modifier.height(16.dp))
@@ -202,7 +204,7 @@ fun ScannerScreen(
                 }
             }
 
-            // Scanned Medicine Modal Dialog
+            // Scanned Item Modal Dialog (Medicine, Medical Device, or Manual)
             if (state.showResultDialog) {
                 ScanResultDialog(
                     state = state,
@@ -255,13 +257,19 @@ fun ScanResultDialog(
 ) {
     val parsed = state.scannedBarcodeData
     val aifa = state.matchedAifaMedicine
-    val isMatched = aifa != null
+    val device = state.matchedMedicalDevice
+
+    val dialogTitle = when {
+        aifa != null -> "💊 Farmaco AIFA Riconosciuto"
+        device != null -> "🩺 Dispositivo Medico Riconosciuto"
+        else -> "Dati Scansionati"
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = if (isMatched) "Farmaco Riconosciuto" else "Dati Scansionati",
+                text = dialogTitle,
                 fontWeight = FontWeight.Bold
             )
         },
@@ -270,60 +278,89 @@ fun ScanResultDialog(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (isMatched) {
-                    Text(
-                        text = aifa!!.denominazione,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    aifa.principioAttivo?.let {
-                        Text(text = "Principio attivo: $it", style = MaterialTheme.typography.bodySmall)
-                    }
-                    Text(text = "Forma/Confezione: ${aifa.descrizione}", style = MaterialTheme.typography.bodySmall)
-                    aifa.ditta?.let {
-                        Text(text = "Ditta: $it", style = MaterialTheme.typography.bodySmall)
-                    }
-                } else {
-                    // Manual entry warning badge
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = ExpiryWarningAmberContainer,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
+                when {
+                    aifa != null -> {
                         Text(
-                            text = if (parsed?.hasAic == true)
-                                "⚠️ AIC non trovato a catalogo locale. Inserisci il nome manualmente."
-                            else
-                                "⚠️ Codice AIC assente nel codice a barre. Inserisci il nome manualmente.",
-                            color = ExpiryWarningAmber,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(8.dp)
+                            text = aifa.denominazione,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        aifa.principioAttivo?.let {
+                            Text(text = "Principio attivo: $it", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text(text = "Forma/Confezione: ${aifa.descrizione}", style = MaterialTheme.typography.bodySmall)
+                        aifa.ditta?.let {
+                            Text(text = "Ditta: $it", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+
+                    device != null -> {
+                        Text(
+                            text = device.denominazioneCommerciale,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        device.fabbricante?.let {
+                            Text(text = "Fabbricante: $it", style = MaterialTheme.typography.bodySmall)
+                        }
+                        device.codiceCatalogo?.let {
+                            Text(text = "Cod. Fabbricante / REF: $it", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                        device.classificazioneCnd?.let { cnd ->
+                            Text(text = "CND: $cnd ${device.descrizioneCnd ?: ""}", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text(text = "Repertorio RDM: ${device.rdmId}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                    }
+
+                    else -> {
+                        // Manual entry warning badge
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = ExpiryWarningAmberContainer,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = if (parsed?.hasAic == true)
+                                    "⚠️ Codice non trovato nei cataloghi AIFA e Dispositivi Medici. Inserisci il nome a mano."
+                                else
+                                    "⚠️ Codice identificativo non presente nel barcode. Inserisci il nome a mano.",
+                                color = ExpiryWarningAmber,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = state.manualName,
+                            onValueChange = onManualNameChange,
+                            label = { Text("Nome del farmaco / dispositivo *") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = state.manualActiveIngredient,
+                            onValueChange = onManualAiChange,
+                            label = { Text("Principio attivo o dettagli (opzionale)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
-
-                    OutlinedTextField(
-                        value = state.manualName,
-                        onValueChange = onManualNameChange,
-                        label = { Text("Nome del farmaco *") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = state.manualActiveIngredient,
-                        onValueChange = onManualAiChange,
-                        label = { Text("Principio attivo (opzionale)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
                 }
 
-                Divider(modifier = Modifier.padding(vertical = 4.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
                 // GS1 Extracted Fields Summary
+                parsed?.manufacturerCode?.let {
+                    Text(text = "Cod. Articolo Fabbricante (AI 240): $it", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                }
                 parsed?.aic?.let {
                     Text(text = "Codice AIC: $it", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                }
+                parsed?.gtin?.let {
+                    Text(text = "GTIN / UDI-DI: $it", style = MaterialTheme.typography.bodySmall)
                 }
                 parsed?.expirationDate?.let {
                     Text(text = "Data di scadenza: $it", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)

@@ -7,12 +7,14 @@ import dagger.hilt.components.SingletonComponent
 import eu.frigo.farmafacile.data.repository.AifaCatalogRepositoryImpl
 import eu.frigo.farmafacile.data.repository.DoseLogRepositoryImpl
 import eu.frigo.farmafacile.data.repository.DriveSyncRepositoryImpl
+import eu.frigo.farmafacile.data.repository.MedicalDeviceRepositoryImpl
 import eu.frigo.farmafacile.data.repository.MedicineListRepositoryImpl
 import eu.frigo.farmafacile.data.repository.SettingsRepositoryImpl
 import eu.frigo.farmafacile.data.repository.UserMedicineRepositoryImpl
 import eu.frigo.farmafacile.domain.repository.AifaCatalogRepository
 import eu.frigo.farmafacile.domain.repository.DoseLogRepository
 import eu.frigo.farmafacile.domain.repository.DriveSyncRepository
+import eu.frigo.farmafacile.domain.repository.MedicalDeviceRepository
 import eu.frigo.farmafacile.domain.repository.MedicineListRepository
 import eu.frigo.farmafacile.domain.repository.SettingsRepository
 import eu.frigo.farmafacile.domain.repository.UserMedicineRepository
@@ -25,6 +27,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindAifaCatalogRepository(impl: AifaCatalogRepositoryImpl): AifaCatalogRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindMedicalDeviceRepository(impl: MedicalDeviceRepositoryImpl): MedicalDeviceRepository
 
     @Binds
     @Singleton

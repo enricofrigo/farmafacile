@@ -4,7 +4,6 @@ import eu.frigo.farmafacile.data.local.aifa.AifaMedicineEntity
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.ByteArrayInputStream
@@ -42,7 +41,7 @@ class AifaCsvParserTest {
         """.trimIndent()
 
         val parsedBatches = mutableListOf<List<AifaMedicineEntity>>()
-        val total = parser.parseStream(ByteArrayInputStream(csvData.toByteArray(StandardCharsets.UTF_8))) { batch ->
+        val total = parser.parseStream(ByteArrayInputStream(csvData.toByteArray(StandardCharsets.UTF_8))) { batch, _ ->
             parsedBatches.add(batch)
         }
 

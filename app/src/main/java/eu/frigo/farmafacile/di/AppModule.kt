@@ -6,6 +6,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import eu.frigo.farmafacile.core.gs1.Gs1DataMatrixParser
 import eu.frigo.farmafacile.data.remote.aifa.AifaCsvStreamingParser
+import eu.frigo.farmafacile.data.remote.aifa.MedicalDeviceZipStreamingParser
 import eu.frigo.farmafacile.domain.usecase.SyncConflictResolver
 import javax.inject.Singleton
 
@@ -24,4 +25,8 @@ object AppModule {
     @Provides
     @Singleton
     fun provideAifaCsvStreamingParser(): AifaCsvStreamingParser = AifaCsvStreamingParser()
+
+    @Provides
+    @Singleton
+    fun provideMedicalDeviceZipStreamingParser(): MedicalDeviceZipStreamingParser = MedicalDeviceZipStreamingParser()
 }

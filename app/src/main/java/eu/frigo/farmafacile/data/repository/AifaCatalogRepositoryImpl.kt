@@ -6,11 +6,15 @@ import eu.frigo.farmafacile.data.local.aifa.CatalogMetadataEntity
 import eu.frigo.farmafacile.data.remote.aifa.AifaCsvStreamingParser
 import eu.frigo.farmafacile.data.remote.aifa.AifaRemoteDataSource
 import eu.frigo.farmafacile.domain.model.AifaMedicine
+import eu.frigo.farmafacile.domain.model.SyncProgress
 import eu.frigo.farmafacile.domain.repository.AifaCatalogRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import java.io.BufferedInputStream
+import java.io.File
+import java.io.FileInputStream
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,6 +29,7 @@ class AifaCatalogRepositoryImpl @Inject constructor(
 
     companion object {
         const val METADATA_KEY_LAST_UPDATED = "last_updated"
+        const val ESTIMATED_AIFA_TOTAL_RECORDS = 150_000
     }
 
     override suspend fun getMedicineByAic(aic: String): AifaMedicine? = withContext(Dispatchers.IO) {
@@ -44,27 +49,43 @@ class AifaCatalogRepositoryImpl @Inject constructor(
         return aifaMedicineDao.count()
     }
 
-    override suspend fun syncCatalog(onProgress: ((importedCount: Int) -> Unit)?): Result<Int> = withContext(Dispatchers.IO) {
+    override suspend fun syncCatalog(onProgress: ((progress: SyncProgress) -> Unit)?): Result<Int> = withContext(Dispatchers.IO) {
         runCatching {
+            var downloadedFile: File? = null
             var totalImported = 0
-            val stream = remoteDataSource.downloadAifaCsvStream()
-            stream.use { inputStream ->
-                // Clear old catalog before inserting fresh dataset
-                aifaMedicineDao.clearCatalog()
 
-                totalImported = csvParser.parseStream(inputStream) { batch ->
-                    aifaMedicineDao.insertBatch(batch)
-                    onProgress?.invoke(batch.size)
+            try {
+                // Step 1: Download stage with live byte progress
+                downloadedFile = remoteDataSource.downloadAifaCsvFile { downloaded, total ->
+                    onProgress?.invoke(SyncProgress.Downloading(downloaded, total))
                 }
 
-                catalogMetadataDao.setMetadata(
-                    CatalogMetadataEntity(
-                        key = METADATA_KEY_LAST_UPDATED,
-                        timestamp = System.currentTimeMillis(),
-                        count = totalImported
+                // Step 2: Database loading stage with live record count progress
+                BufferedInputStream(FileInputStream(downloadedFile), 65536).use { inputStream ->
+                    aifaMedicineDao.clearCatalog()
+
+                    totalImported = csvParser.parseStream(inputStream) { batch, runningTotal ->
+                        aifaMedicineDao.insertBatch(batch)
+                        onProgress?.invoke(
+                            SyncProgress.Importing(
+                                importedCount = runningTotal,
+                                estimatedTotal = ESTIMATED_AIFA_TOTAL_RECORDS
+                            )
+                        )
+                    }
+
+                    catalogMetadataDao.setMetadata(
+                        CatalogMetadataEntity(
+                            key = METADATA_KEY_LAST_UPDATED,
+                            timestamp = System.currentTimeMillis(),
+                            count = totalImported
+                        )
                     )
-                )
+                }
+            } finally {
+                downloadedFile?.delete()
             }
+
             totalImported
         }
     }

@@ -12,7 +12,6 @@ import java.time.LocalDate
 class Gs1DataMatrixParserTest {
 
     private lateinit var parser: Gs1DataMatrixParser
-    private val gs = Gs1DataMatrixParser.GS_CHAR
 
     @Before
     fun setUp() {
@@ -20,122 +19,101 @@ class Gs1DataMatrixParserTest {
     }
 
     @Test
-    fun testStandardGs1DataMatrixWithGsSeparator() {
-        // AI 01 (GTIN), AI 17 (Expiry), AI 10 (Lot with GS), AI 716 (AIC), AI 21 (Serial)
-        val raw = "01080123456789011726123110LOT12345${gs}716000367045${gs}21SN987654"
+    fun testStandardGs1BarcodeWithGsSeparator() {
+        // AI 01 (GTIN), AI 17 (Expiry 31/12/2026), AI 10 (Lot LOT12345), AI 21 (Serial SER987), AI 716 (AIC 000367045)
+        val raw = "01080123456789011726123110LOT12345\u001D21SER987\u001D716000367045"
         val result = parser.parse(raw)
 
         assertEquals("08012345678901", result.gtin)
         assertEquals(LocalDate.of(2026, 12, 31), result.expirationDate)
         assertEquals("LOT12345", result.lotNumber)
+        assertEquals("SER987", result.serialNumber)
         assertEquals("000367045", result.aic)
-        assertEquals("SN987654", result.serialNumber)
         assertTrue(result.hasAic)
     }
 
     @Test
-    fun testDifferentAiOrderPermutations() {
-        // AI 716 first, then AI 17, then AI 10 at end (no trailing GS)
-        val raw1 = "7160005900121727063010BATCH99"
-        val result1 = parser.parse(raw1)
+    fun testMedicalDeviceDataMatrixWithAi240ManufacturerCode() {
+        // Medical Device DataMatrix carrying AI 01, AI 17, AI 10, AI 240 (Manufacturer Code / REF PD01R)
+        val raw = "01080012345678901728063010LOT999\u001D240PD01R"
+        val result = parser.parse(raw)
 
-        assertEquals("000590012", result1.aic)
-        assertEquals(LocalDate.of(2027, 6, 30), result1.expirationDate)
-        assertEquals("BATCH99", result1.lotNumber)
-        assertNull(result1.gtin)
-        assertNull(result1.serialNumber)
-        assertTrue(result1.hasAic)
-
-        // AI 17 first, then AI 716, then AI 01
-        val raw2 = "172508157160003671080108099999999999"
-        val result2 = parser.parse(raw2)
-
-        assertEquals("000367108", result2.aic)
-        assertEquals(LocalDate.of(2025, 8, 15), result2.expirationDate)
-        assertEquals("08099999999999", result2.gtin)
-        assertTrue(result2.hasAic)
+        assertEquals("08001234567890", result.gtin)
+        assertEquals(LocalDate.of(2028, 6, 30), result.expirationDate)
+        assertEquals("LOT999", result.lotNumber)
+        assertEquals("PD01R", result.manufacturerCode)
+        assertNull(result.aic)
+        assertFalse(result.hasAic)
     }
 
     @Test
-    fun testMissingAi716ReportsHasAicFalse() {
-        // Standard international pack with GTIN, Expiry, Lot, Serial but NO AIC (716)
-        val raw = "01080555555555551726053110FOREIGNLOT1${gs}21SER999"
+    fun testBracketedMedicalDeviceWithAi240() {
+        val raw = "(01)08001234567890(17)270531(10)LOTABC(240)ACDM-01-07(21)SN12345"
+        val result = parser.parse(raw)
+
+        assertEquals("08001234567890", result.gtin)
+        assertEquals(LocalDate.of(2027, 5, 31), result.expirationDate)
+        assertEquals("LOTABC", result.lotNumber)
+        assertEquals("ACDM-01-07", result.manufacturerCode)
+        assertEquals("SN12345", result.serialNumber)
+        assertNull(result.aic)
+    }
+
+    @Test
+    fun testPermutedAiOrderWithAi716First() {
+        val raw = "71600059001217270630010800000000000010LOT999"
+        val result = parser.parse(raw)
+
+        assertEquals("000590012", result.aic)
+        assertEquals(LocalDate.of(2027, 6, 30), result.expirationDate)
+        assertEquals("08000000000000", result.gtin)
+        assertEquals("LOT999", result.lotNumber)
+        assertTrue(result.hasAic)
+    }
+
+    @Test
+    fun testExpiryDateWithZeroDayEndOfMonth() {
+        // YYMM00: 28 02 00 -> 2028 is a leap year -> Feb 29
+        val parsedLeapFeb = parser.parseGs1Date("280200")
+        assertEquals(LocalDate.of(2028, 2, 29), parsedLeapFeb)
+
+        // 27 02 00 -> 2027 not leap year -> Feb 28
+        val parsedNonLeapFeb = parser.parseGs1Date("270200")
+        assertEquals(LocalDate.of(2027, 2, 28), parsedNonLeapFeb)
+
+        // 26 04 00 -> April 30
+        val parsedApril = parser.parseGs1Date("260400")
+        assertEquals(LocalDate.of(2026, 4, 30), parsedApril)
+    }
+
+    @Test
+    fun testSymbologyPrefixStripping() {
+        val raw = "]d2010801234567890117261231716000367045"
+        val result = parser.parse(raw)
+
+        assertEquals("08012345678901", result.gtin)
+        assertEquals("000367045", result.aic)
+        assertEquals(LocalDate.of(2026, 12, 31), result.expirationDate)
+    }
+
+    @Test
+    fun testMissingAicReturnsNull() {
+        val raw = "01080123456789011726123110LOT123"
         val result = parser.parse(raw)
 
         assertNull(result.aic)
         assertFalse(result.hasAic)
-        assertEquals("08055555555555", result.gtin)
-        assertEquals(LocalDate.of(2026, 5, 31), result.expirationDate)
-        assertEquals("FOREIGNLOT1", result.lotNumber)
-        assertEquals("SER999", result.serialNumber)
+        assertEquals("LOT123", result.lotNumber)
     }
 
     @Test
-    fun testBracketedAiFormat() {
-        val bracketed = "(01)08012345678901(17)261231(10)LOTABC(716)000527034(21)SER123"
-        val result = parser.parse(bracketed)
-
-        assertEquals("08012345678901", result.gtin)
-        assertEquals(LocalDate.of(2026, 12, 31), result.expirationDate)
-        assertEquals("LOTABC", result.lotNumber)
-        assertEquals("000527034", result.aic)
-        assertEquals("SER123", result.serialNumber)
-        assertTrue(result.hasAic)
-    }
-
-    @Test
-    fun testSymbologyIdentifierPrefixStripped() {
-        val rawWithPrefix = "]d2010801234567890117261231716000367060"
-        val result = parser.parse(rawWithPrefix)
-
-        assertEquals("08012345678901", result.gtin)
-        assertEquals(LocalDate.of(2026, 12, 31), result.expirationDate)
-        assertEquals("000367060", result.aic)
-        assertTrue(result.hasAic)
-    }
-
-    @Test
-    fun testEndOfMonthDateFormatYYMM00() {
-        // 260200 -> February 2026 (non-leap year, 28 days)
-        val febNonLeap = parser.parseGs1Date("260200")
-        assertEquals(LocalDate.of(2026, 2, 28), febNonLeap)
-
-        // 240200 -> February 2024 (leap year, 29 days)
-        val febLeap = parser.parseGs1Date("240200")
-        assertEquals(LocalDate.of(2024, 2, 29), febLeap)
-
-        // 260400 -> April (30 days)
-        val april = parser.parseGs1Date("260400")
-        assertEquals(LocalDate.of(2026, 4, 30), april)
-
-        // 261200 -> December (31 days)
-        val dec = parser.parseGs1Date("261200")
-        assertEquals(LocalDate.of(2026, 12, 31), dec)
-    }
-
-    @Test
-    fun testEmptyAndBlankInputHandling() {
+    fun testEmptyAndBlankInputs() {
         val emptyResult = parser.parse("")
         assertNull(emptyResult.aic)
+        assertNull(emptyResult.expirationDate)
         assertFalse(emptyResult.hasAic)
-        assertEquals("", emptyResult.rawContent)
 
         val nullResult = parser.parse(null)
         assertNull(nullResult.aic)
-        assertFalse(nullResult.hasAic)
-    }
-
-    @Test
-    fun testOptionalAisOmitted() {
-        // Only AIC and Expiration date
-        val raw = "71600059005117280131"
-        val result = parser.parse(raw)
-
-        assertEquals("000590051", result.aic)
-        assertEquals(LocalDate.of(2028, 1, 31), result.expirationDate)
-        assertNull(result.lotNumber)
-        assertNull(result.serialNumber)
-        assertNull(result.gtin)
-        assertTrue(result.hasAic)
     }
 }

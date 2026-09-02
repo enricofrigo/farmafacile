@@ -9,6 +9,7 @@ import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import java.util.concurrent.TimeUnit
+import javax.inject.Named
 import javax.inject.Singleton
 
 @Module
@@ -31,9 +32,22 @@ object NetworkModule {
         }
         return OkHttpClient.Builder()
             .connectTimeout(60, TimeUnit.SECONDS)
-            .readTimeout(180, TimeUnit.SECONDS) // Sufficient for streaming 80MB AIFA dataset
+            .readTimeout(180, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
             .addInterceptor(logging)
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    @Named("BulkDownloadClient")
+    fun provideBulkDownloadOkHttpClient(): OkHttpClient {
+        // Unintercepted client with generous timeouts for 50-80MB government dataset streaming
+        return OkHttpClient.Builder()
+            .connectTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(300, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .build()
     }
 }

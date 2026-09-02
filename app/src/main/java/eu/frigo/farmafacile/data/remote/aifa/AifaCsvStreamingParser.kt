@@ -8,8 +8,6 @@ import java.nio.charset.StandardCharsets
 
 /**
  * High-performance streaming parser for AIFA CSV files (e.g., confezioni_fornitura.csv ~82MB).
- *
- * Implements chunked streaming directly to Room database to avoid OutOfMemoryError on Android devices.
  */
 class AifaCsvStreamingParser {
 
@@ -21,18 +19,17 @@ class AifaCsvStreamingParser {
      * Parses the CSV stream in memory-efficient batches and invokes [onBatchParsed] for each batch.
      *
      * @param inputStream The byte stream of the CSV file.
-     * @param onBatchParsed Callback receiving batches of [AifaMedicineEntity].
+     * @param onBatchParsed Callback receiving (batch, runningTotalCount).
      * @return Total count of imported medicine records.
      */
     suspend fun parseStream(
         inputStream: InputStream,
-        onBatchParsed: suspend (batch: List<AifaMedicineEntity>) -> Unit
+        onBatchParsed: suspend (batch: List<AifaMedicineEntity>, runningTotal: Int) -> Unit
     ): Int {
         val reader = BufferedReader(InputStreamReader(inputStream, StandardCharsets.UTF_8))
         var totalCount = 0
         val currentBatch = ArrayList<AifaMedicineEntity>(BATCH_SIZE)
 
-        // Read header line
         val headerLine = reader.readLine() ?: return 0
         val headers = parseCsvLine(headerLine)
         val headerMap = headers.mapIndexed { index, name -> name.trim().uppercase() to index }.toMap()
@@ -76,7 +73,7 @@ class AifaCsvStreamingParser {
                         totalCount++
 
                         if (currentBatch.size >= BATCH_SIZE) {
-                            onBatchParsed(ArrayList(currentBatch))
+                            onBatchParsed(ArrayList(currentBatch), totalCount)
                             currentBatch.clear()
                         }
                     }
@@ -86,16 +83,13 @@ class AifaCsvStreamingParser {
         }
 
         if (currentBatch.isNotEmpty()) {
-            onBatchParsed(ArrayList(currentBatch))
+            onBatchParsed(ArrayList(currentBatch), totalCount)
             currentBatch.clear()
         }
 
         return totalCount
     }
 
-    /**
-     * Splits a CSV line handling ';' delimiter and quoted fields.
-     */
     fun parseCsvLine(line: String): List<String> {
         val result = mutableListOf<String>()
         val sb = java.lang.StringBuilder()
@@ -108,7 +102,7 @@ class AifaCsvStreamingParser {
                 c == '"' -> {
                     if (inQuotes && i + 1 < line.length && line[i + 1] == '"') {
                         sb.append('"')
-                        i++ // skip escaped quote
+                        i++
                     } else {
                         inQuotes = !inQuotes
                     }

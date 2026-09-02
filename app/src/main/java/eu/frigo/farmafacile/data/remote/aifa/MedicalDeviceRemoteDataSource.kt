@@ -4,30 +4,28 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import eu.frigo.farmafacile.data.remote.ResilientFileDownloader
 import java.io.File
-import java.io.FileInputStream
-import java.io.InputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class AifaRemoteDataSource @Inject constructor(
+class MedicalDeviceRemoteDataSource @Inject constructor(
     @ApplicationContext private val context: Context,
     private val downloader: ResilientFileDownloader
 ) {
     companion object {
-        const val AIFA_CONFEZIONI_FORNITURA_URL = "https://drive.aifa.gov.it/farmaci/confezioni_fornitura.csv"
-        const val TEMP_FILE_NAME = "aifa_confezioni.csv"
+        const val SALUTE_DISPOSITIVI_MEDICI_ZIP_URL = "https://www.dati.salute.gov.it/sites/default/files/opendata/DISPO_RDM_1_20260824_csv.zip"
+        const val TEMP_FILE_NAME = "dispositivi_medici.zip"
     }
 
     /**
-     * Downloads the AIFA dataset to a temporary cache file using auto-resume and returns the file.
+     * Downloads the official Medical Devices ZIP dataset with auto-resume to a temporary cache file.
      */
-    suspend fun downloadAifaCsvFile(
+    suspend fun downloadMedicalDevicesZipFile(
         onProgress: ((bytesDownloaded: Long, totalBytes: Long) -> Unit)? = null
     ): File {
         val tempFile = File(context.cacheDir, TEMP_FILE_NAME)
         return downloader.downloadFileWithResume(
-            url = AIFA_CONFEZIONI_FORNITURA_URL,
+            url = SALUTE_DISPOSITIVI_MEDICI_ZIP_URL,
             destinationFile = tempFile,
             onProgress = onProgress
         )

@@ -10,6 +10,7 @@ import dagger.hilt.components.SingletonComponent
 import eu.frigo.farmafacile.data.local.aifa.AifaCatalogDatabase
 import eu.frigo.farmafacile.data.local.aifa.AifaMedicineDao
 import eu.frigo.farmafacile.data.local.aifa.CatalogMetadataDao
+import eu.frigo.farmafacile.data.local.aifa.MedicalDeviceDao
 import eu.frigo.farmafacile.data.local.user.DoseLogDao
 import eu.frigo.farmafacile.data.local.user.MedTrackUserDatabase
 import eu.frigo.farmafacile.data.local.user.MedicineListDao
@@ -47,6 +48,9 @@ object DatabaseModule {
 
     @Provides
     fun provideAifaMedicineDao(database: AifaCatalogDatabase): AifaMedicineDao = database.aifaMedicineDao()
+
+    @Provides
+    fun provideMedicalDeviceDao(database: AifaCatalogDatabase): MedicalDeviceDao = database.medicalDeviceDao()
 
     @Provides
     fun provideCatalogMetadataDao(database: AifaCatalogDatabase): CatalogMetadataDao = database.catalogMetadataDao()

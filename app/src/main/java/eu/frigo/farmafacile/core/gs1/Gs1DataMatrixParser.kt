@@ -2,19 +2,18 @@ package eu.frigo.farmafacile.core.gs1
 
 import java.time.LocalDate
 import java.time.YearMonth
-import java.time.format.DateTimeFormatter
 
 /**
- * Generic GS1 DataMatrix parser for pharmaceutical packaging and healthcare items.
+ * Generic GS1 DataMatrix parser for pharmaceutical packaging and healthcare / medical devices.
  *
  * Supports extraction of standard GS1 Application Identifiers:
- * - (01) GTIN: 14 digits fixed length (informative only)
+ * - (01) GTIN / UDI-DI: 14 digits fixed length
  * - (17) Expiration Date: 6 digits fixed length (YYMMDD), with support for YYMM00 (end of month)
  * - (10) Batch / Lot Number: alphanumeric, variable length up to 20 chars (terminated by GS or end of string)
  * - (21) Serial Number: alphanumeric, variable length up to 20 chars (terminated by GS or end of string)
  * - (716) AIC Code: 9 digits fixed length plain text (without conversion)
- *
- * Designed as a pure Kotlin class with no Android framework dependencies for fast, deterministic unit testing.
+ * - (240) Manufacturer Catalog Code / Additional Product ID: variable length up to 30 chars
+ * - (241) Customer Part Number: variable length up to 30 chars
  */
 class Gs1DataMatrixParser {
 
@@ -26,9 +25,6 @@ class Gs1DataMatrixParser {
 
     /**
      * Parses a raw GS1 DataMatrix barcode string into structured [Gs1BarcodeData].
-     *
-     * @param rawInput The raw scanned string.
-     * @return [Gs1BarcodeData] containing parsed fields and indicating presence/absence of AIC.
      */
     fun parse(rawInput: String?): Gs1BarcodeData {
         if (rawInput.isNullOrBlank()) {
@@ -51,7 +47,7 @@ class Gs1DataMatrixParser {
     }
 
     /**
-     * Parses bracketed AI strings, e.g. "(01)08012345678901(17)261231(10)LOT123(716)000367045"
+     * Parses bracketed AI strings, e.g. "(01)08012345678901(17)261231(10)LOT123(240)PD01R(716)000367045"
      */
     private fun parseBracketedFormat(input: String, originalRaw: String): Gs1BarcodeData {
         var gtin: String? = null
@@ -59,8 +55,8 @@ class Gs1DataMatrixParser {
         var lot: String? = null
         var serial: String? = null
         var aic: String? = null
+        var manufacturerCode: String? = null
 
-        // Split by '(' while keeping the content
         val tokens = input.split('(').filter { it.isNotBlank() }
         for (token in tokens) {
             val closeIdx = token.indexOf(')')
@@ -74,6 +70,8 @@ class Gs1DataMatrixParser {
                 "10" -> lot = value.take(20)
                 "21" -> serial = value.take(20)
                 "716" -> aic = value.take(9)
+                "240" -> manufacturerCode = value.take(30)
+                "241" -> if (manufacturerCode == null) manufacturerCode = value.take(30)
             }
         }
 
@@ -83,7 +81,8 @@ class Gs1DataMatrixParser {
             expirationDate = expDate,
             lotNumber = lot,
             serialNumber = serial,
-            gtin = gtin
+            gtin = gtin,
+            manufacturerCode = manufacturerCode
         )
     }
 
@@ -96,12 +95,12 @@ class Gs1DataMatrixParser {
         var lot: String? = null
         var serial: String? = null
         var aic: String? = null
+        var manufacturerCode: String? = null
 
         var index = 0
         val length = input.length
 
         while (index < length) {
-            // Skip any consecutive Group Separator characters
             if (input[index] == GS_CHAR) {
                 index++
                 continue
@@ -109,7 +108,6 @@ class Gs1DataMatrixParser {
 
             val remaining = input.substring(index)
 
-            // Look ahead for known Application Identifiers by prefix
             when {
                 // AI 716: AIC Code (9 digits fixed length)
                 remaining.startsWith("716") -> {
@@ -119,6 +117,40 @@ class Gs1DataMatrixParser {
                         aic = input.substring(start, end)
                     }
                     index = end
+                }
+
+                // AI 240: Additional Product Identification (Manufacturer Catalog Code / REF)
+                remaining.startsWith("240") -> {
+                    val start = index + 3
+                    val nextGs = input.indexOf(GS_CHAR, start)
+                    val value = if (nextGs != -1) {
+                        input.substring(start, nextGs)
+                    } else {
+                        findVariableFieldValue(input, start, maxLen = 30)
+                    }
+                    manufacturerCode = value.take(30)
+                    index = start + value.length
+                    if (index < length && input[index] == GS_CHAR) {
+                        index++
+                    }
+                }
+
+                // AI 241: Customer Part Number
+                remaining.startsWith("241") -> {
+                    val start = index + 3
+                    val nextGs = input.indexOf(GS_CHAR, start)
+                    val value = if (nextGs != -1) {
+                        input.substring(start, nextGs)
+                    } else {
+                        findVariableFieldValue(input, start, maxLen = 30)
+                    }
+                    if (manufacturerCode == null) {
+                        manufacturerCode = value.take(30)
+                    }
+                    index = start + value.length
+                    if (index < length && input[index] == GS_CHAR) {
+                        index++
+                    }
                 }
 
                 // AI 01: GTIN (14 digits fixed length)
@@ -142,14 +174,13 @@ class Gs1DataMatrixParser {
                     index = end
                 }
 
-                // AI 10: Batch/Lot Number (Variable length up to 20 chars, terminated by GS or end)
+                // AI 10: Batch/Lot Number (Variable length up to 20 chars)
                 remaining.startsWith("10") -> {
                     val start = index + 2
                     val nextGs = input.indexOf(GS_CHAR, start)
                     val value = if (nextGs != -1) {
                         input.substring(start, nextGs)
                     } else {
-                        // Check if another AI starts inside this chunk if not GS delimited
                         findVariableFieldValue(input, start, maxLen = 20)
                     }
                     lot = value.take(20)
@@ -159,7 +190,7 @@ class Gs1DataMatrixParser {
                     }
                 }
 
-                // AI 21: Serial Number (Variable length up to 20 chars, terminated by GS or end)
+                // AI 21: Serial Number (Variable length up to 20 chars)
                 remaining.startsWith("21") -> {
                     val start = index + 2
                     val nextGs = input.indexOf(GS_CHAR, start)
@@ -176,7 +207,6 @@ class Gs1DataMatrixParser {
                 }
 
                 else -> {
-                    // Unknown or unsupported AI: skip to next GS or advance 1 char
                     val nextGs = input.indexOf(GS_CHAR, index)
                     if (nextGs != -1) {
                         index = nextGs + 1
@@ -193,27 +223,26 @@ class Gs1DataMatrixParser {
             expirationDate = expDate,
             lotNumber = lot,
             serialNumber = serial,
-            gtin = gtin
+            gtin = gtin,
+            manufacturerCode = manufacturerCode
         )
     }
 
-    /**
-     * In case a variable field is not followed by GS delimiter (non-standard barcode encoding),
-     * try to detect if subsequent standard AIs (like 716, 17, 01) follow.
-     */
     private fun findVariableFieldValue(input: String, start: Int, maxLen: Int): String {
         val maxEnd = (start + maxLen).coerceAtMost(input.length)
         val candidate = input.substring(start, maxEnd)
 
-        val knownAiPrefixes = listOf("716", "17", "01", "21", "10")
+        val knownAiPrefixes = listOf("716", "240", "241", "17", "01", "21", "10")
         for (i in 1 until candidate.length) {
             val sub = candidate.substring(i)
             if (knownAiPrefixes.any { sub.startsWith(it) }) {
-                // Heuristic check: if subsequent looks like AI 716 (followed by 9 digits) or AI 17 (followed by 6 digits)
                 if (sub.startsWith("716") && sub.length >= 12 && sub.substring(3, 12).all { it.isDigit() }) {
                     return candidate.substring(0, i)
                 }
                 if (sub.startsWith("17") && sub.length >= 8 && sub.substring(2, 8).all { it.isDigit() }) {
+                    return candidate.substring(0, i)
+                }
+                if (sub.startsWith("01") && sub.length >= 16 && sub.substring(2, 16).all { it.isDigit() }) {
                     return candidate.substring(0, i)
                 }
             }
@@ -222,13 +251,6 @@ class Gs1DataMatrixParser {
         return candidate
     }
 
-    /**
-     * Parses GS1 6-digit date formatted as YYMMDD.
-     * According to GS1 General Specifications:
-     * - YY: 51-99 indicates 1951-1999; 00-50 indicates 2000-2050.
-     * - MM: 01-12.
-     * - DD: 01-31. If DD is "00", it denotes the last day of the given month.
-     */
     fun parseGs1Date(dateStr: String?): LocalDate? {
         if (dateStr == null || dateStr.length < 6 || !dateStr.all { it.isDigit() }) {
             return null

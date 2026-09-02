@@ -3,7 +3,9 @@ package eu.frigo.farmafacile.presentation.screens.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import eu.frigo.farmafacile.domain.model.SyncProgress
 import eu.frigo.farmafacile.domain.repository.AifaCatalogRepository
+import eu.frigo.farmafacile.domain.repository.MedicalDeviceRepository
 import eu.frigo.farmafacile.domain.repository.SettingsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -18,7 +20,13 @@ data class SettingsUiState(
     val totalCatalogCount: Int = 0,
     val isCatalogOutdated: Boolean = false,
     val isSyncing: Boolean = false,
-    val syncProgress: Int = 0,
+    val aifaProgress: SyncProgress? = null,
+    // Medical Devices
+    val devicesLastUpdatedTimestamp: Long? = null,
+    val totalDevicesCount: Int = 0,
+    val isSyncingDevices: Boolean = false,
+    val devicesProgress: SyncProgress? = null,
+    // Notifications & Privacy
     val expiryReminderDays: Int = 30,
     val isSyncConsentGranted: Boolean = false,
     val showPrivacyDialog: Boolean = false,
@@ -29,11 +37,14 @@ data class SettingsUiState(
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val aifaCatalogRepository: AifaCatalogRepository,
+    private val medicalDeviceRepository: MedicalDeviceRepository,
     private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
     private val _isSyncing = MutableStateFlow(false)
-    private val _syncProgress = MutableStateFlow(0)
+    private val _aifaProgress = MutableStateFlow<SyncProgress?>(null)
+    private val _isSyncingDevices = MutableStateFlow(false)
+    private val _devicesProgress = MutableStateFlow<SyncProgress?>(null)
     private val _message = MutableStateFlow<String?>(null)
     private val _errorMessage = MutableStateFlow<String?>(null)
     private val _showPrivacyDialog = MutableStateFlow(false)
@@ -41,23 +52,31 @@ class SettingsViewModel @Inject constructor(
     val uiState: StateFlow<SettingsUiState> = combine(
         aifaCatalogRepository.getCatalogLastUpdatedTimestamp(),
         aifaCatalogRepository.getCatalogTotalCount(),
+        medicalDeviceRepository.getDevicesLastUpdatedTimestamp(),
+        medicalDeviceRepository.getDevicesTotalCount(),
         settingsRepository.getExpiryReminderDays(),
         settingsRepository.isSyncConsentGranted(),
         _isSyncing,
-        _syncProgress,
+        _aifaProgress,
+        _isSyncingDevices,
+        _devicesProgress,
         _showPrivacyDialog,
         _message,
         _errorMessage
     ) { params ->
         val lastUpdated = params[0] as? Long
         val count = params[1] as Int
-        val expiryDays = params[2] as Int
-        val consent = params[3] as Boolean
-        val syncing = params[4] as Boolean
-        val progress = params[5] as Int
-        val showPrivacy = params[6] as Boolean
-        val msg = params[7] as? String
-        val error = params[8] as? String
+        val devLastUpdated = params[2] as? Long
+        val devCount = params[3] as Int
+        val expiryDays = params[4] as Int
+        val consent = params[5] as Boolean
+        val syncing = params[6] as Boolean
+        val aifaProg = params[7] as? SyncProgress
+        val syncingDev = params[8] as Boolean
+        val devProg = params[9] as? SyncProgress
+        val showPrivacy = params[10] as Boolean
+        val msg = params[11] as? String
+        val error = params[12] as? String
 
         val isOutdated = lastUpdated == null || (System.currentTimeMillis() - lastUpdated > 45L * 24 * 60 * 60 * 1000)
 
@@ -66,7 +85,11 @@ class SettingsViewModel @Inject constructor(
             totalCatalogCount = count,
             isCatalogOutdated = isOutdated,
             isSyncing = syncing,
-            syncProgress = progress,
+            aifaProgress = aifaProg,
+            devicesLastUpdatedTimestamp = devLastUpdated,
+            totalDevicesCount = devCount,
+            isSyncingDevices = syncingDev,
+            devicesProgress = devProg,
             expiryReminderDays = expiryDays,
             isSyncConsentGranted = consent,
             showPrivacyDialog = showPrivacy,
@@ -78,19 +101,41 @@ class SettingsViewModel @Inject constructor(
     fun syncAifaCatalogNow() {
         viewModelScope.launch {
             _isSyncing.value = true
-            _syncProgress.value = 0
+            _aifaProgress.value = null
             _message.value = null
             _errorMessage.value = null
 
             val result = aifaCatalogRepository.syncCatalog { progress ->
-                _syncProgress.value = progress
+                _aifaProgress.value = progress
             }
 
             _isSyncing.value = false
+            _aifaProgress.value = null
             if (result.isSuccess) {
                 _message.value = "Catalogo AIFA aggiornato con successo! (${result.getOrDefault(0)} confezioni caricate)"
             } else {
-                _errorMessage.value = "Errore durante l'aggiornamento: ${result.exceptionOrNull()?.message}"
+                _errorMessage.value = "Errore durante l'aggiornamento AIFA: ${result.exceptionOrNull()?.message}"
+            }
+        }
+    }
+
+    fun syncMedicalDevicesNow() {
+        viewModelScope.launch {
+            _isSyncingDevices.value = true
+            _devicesProgress.value = null
+            _message.value = null
+            _errorMessage.value = null
+
+            val result = medicalDeviceRepository.syncMedicalDevices { progress ->
+                _devicesProgress.value = progress
+            }
+
+            _isSyncingDevices.value = false
+            _devicesProgress.value = null
+            if (result.isSuccess) {
+                _message.value = "Catalogo Dispositivi Medici aggiornato con successo! (${result.getOrDefault(0)} dispositivi importati)"
+            } else {
+                _errorMessage.value = "Errore durante l'aggiornamento Dispositivi Medici: ${result.exceptionOrNull()?.message}"
             }
         }
     }

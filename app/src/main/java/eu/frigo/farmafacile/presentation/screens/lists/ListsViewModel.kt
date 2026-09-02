@@ -6,9 +6,11 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import eu.frigo.farmafacile.core.utils.ExpiryUrgencyCalculator
 import eu.frigo.farmafacile.core.utils.ExpiryUrgencyLevel
 import eu.frigo.farmafacile.domain.model.MedicineList
+import eu.frigo.farmafacile.domain.model.SyncProgress
 import eu.frigo.farmafacile.domain.model.UserMedicine
 import eu.frigo.farmafacile.domain.repository.AifaCatalogRepository
 import eu.frigo.farmafacile.domain.repository.DriveSyncRepository
+import eu.frigo.farmafacile.domain.repository.MedicalDeviceRepository
 import eu.frigo.farmafacile.domain.repository.MedicineListRepository
 import eu.frigo.farmafacile.domain.repository.UserMedicineRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,8 +33,10 @@ data class ListsUiState(
     val lists: List<ListWithStats> = emptyList(),
     val isCatalogOutdated: Boolean = false,
     val isCatalogSyncing: Boolean = false,
-    val catalogSyncProgress: Int = 0,
+    val catalogSyncProgress: SyncProgress? = null,
+    val catalogSyncStageLabel: String = "",
     val catalogTotalCount: Int = 0,
+    val devicesTotalCount: Int = 0,
     val showCreateDialog: Boolean = false,
     val showPrivacyConsentDialog: Boolean = false,
     val pendingShareList: MedicineList? = null,
@@ -44,6 +48,7 @@ class ListsViewModel @Inject constructor(
     private val listRepository: MedicineListRepository,
     private val userMedicineRepository: UserMedicineRepository,
     private val aifaCatalogRepository: AifaCatalogRepository,
+    private val medicalDeviceRepository: MedicalDeviceRepository,
     private val driveSyncRepository: DriveSyncRepository
 ) : ViewModel() {
 
@@ -52,8 +57,9 @@ class ListsViewModel @Inject constructor(
         _uiState,
         listRepository.getAllLists(),
         userMedicineRepository.getAllActiveMedicines(),
-        aifaCatalogRepository.getCatalogTotalCount()
-    ) { state, lists, medicines, catalogCount ->
+        aifaCatalogRepository.getCatalogTotalCount(),
+        medicalDeviceRepository.getDevicesTotalCount()
+    ) { state, lists, medicines, catalogCount, devicesCount ->
         val listsWithStats = lists.map { list ->
             val listMeds = medicines.filter { it.listId == list.id }
             val expired = listMeds.count { ExpiryUrgencyCalculator.calculate(it.expiryDate).level == ExpiryUrgencyLevel.EXPIRED }
@@ -67,7 +73,8 @@ class ListsViewModel @Inject constructor(
         }
         state.copy(
             lists = listsWithStats,
-            catalogTotalCount = catalogCount
+            catalogTotalCount = catalogCount,
+            devicesTotalCount = devicesCount
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ListsUiState())
 
@@ -78,8 +85,9 @@ class ListsViewModel @Inject constructor(
 
     private fun checkCatalogAge() {
         viewModelScope.launch {
-            val outdated = aifaCatalogRepository.isCatalogOutdated(45)
-            _uiState.value = _uiState.value.copy(isCatalogOutdated = outdated)
+            val aifaOutdated = aifaCatalogRepository.isCatalogOutdated(45)
+            val devicesOutdated = medicalDeviceRepository.isDevicesOutdated(45)
+            _uiState.value = _uiState.value.copy(isCatalogOutdated = (aifaOutdated || devicesOutdated))
         }
     }
 
@@ -172,14 +180,41 @@ class ListsViewModel @Inject constructor(
 
     fun syncCatalogNow() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isCatalogSyncing = true, catalogSyncProgress = 0)
-            val result = aifaCatalogRepository.syncCatalog { progress ->
-                _uiState.value = _uiState.value.copy(catalogSyncProgress = progress)
+            _uiState.value = _uiState.value.copy(
+                isCatalogSyncing = true,
+                catalogSyncProgress = null,
+                catalogSyncStageLabel = "Aggiornamento AIFA..."
+            )
+            
+            // Sync AIFA medicines
+            val aifaResult = aifaCatalogRepository.syncCatalog { progress ->
+                _uiState.value = _uiState.value.copy(
+                    catalogSyncProgress = progress,
+                    catalogSyncStageLabel = "Farmaci AIFA"
+                )
             }
+            
+            // Sync Medical Devices
+            _uiState.value = _uiState.value.copy(
+                catalogSyncProgress = null,
+                catalogSyncStageLabel = "Dispositivi Medici..."
+            )
+            val devicesResult = medicalDeviceRepository.syncMedicalDevices { progress ->
+                _uiState.value = _uiState.value.copy(
+                    catalogSyncProgress = progress,
+                    catalogSyncStageLabel = "Dispositivi Medici"
+                )
+            }
+
+            val hasError = aifaResult.isFailure || devicesResult.isFailure
+            val errorMsg = aifaResult.exceptionOrNull()?.message ?: devicesResult.exceptionOrNull()?.message
+
             _uiState.value = _uiState.value.copy(
                 isCatalogSyncing = false,
-                isCatalogOutdated = false,
-                errorMessage = result.exceptionOrNull()?.message
+                catalogSyncProgress = null,
+                catalogSyncStageLabel = "",
+                isCatalogOutdated = hasError,
+                errorMessage = if (hasError) errorMsg else null
             )
         }
     }

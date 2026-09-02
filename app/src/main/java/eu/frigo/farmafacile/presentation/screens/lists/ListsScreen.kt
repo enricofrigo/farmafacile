@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import eu.frigo.farmafacile.domain.model.MedicineList
+import eu.frigo.farmafacile.domain.model.SyncProgress
 import eu.frigo.farmafacile.presentation.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -61,43 +62,131 @@ fun ListsScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Outdated Catalog Warning Banner
-            if (state.isCatalogOutdated) {
+            // Outdated Catalog Warning & Live Sync Progress Card
+            if (state.isCatalogOutdated || state.isCatalogSyncing) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(12.dp),
                     colors = CardDefaults.cardColors(containerColor = ExpiryWarningAmberContainer)
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(12.dp)
                     ) {
-                        Icon(
-                            Icons.Default.Warning,
-                            contentDescription = "Attenzione",
-                            tint = ExpiryWarningAmber,
-                            modifier = Modifier.size(32.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Catalogo farmaci non aggiornato",
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Warning,
+                                contentDescription = "Attenzione",
+                                tint = ExpiryWarningAmber,
+                                modifier = Modifier.size(32.dp)
                             )
-                            Text(
-                                text = "L'anagrafica AIFA non viene sincronizzata da più di 45 giorni.",
-                                style = MaterialTheme.typography.bodySmall
-                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (state.isCatalogSyncing) "Aggiornamento in corso..." else "Cataloghi non aggiornati",
+                                    fontWeight = FontWeight.Bold,
+                                    color = ExpiryWarningAmberText
+                                )
+                                Text(
+                                    text = if (state.isCatalogSyncing)
+                                        "Elaborazione: ${state.catalogSyncStageLabel}"
+                                    else
+                                        "I dati AIFA / Dispositivi Medici non sono aggiornati da oltre 45 giorni.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = ExpiryWarningAmberText
+                                )
+                            }
+                            if (!state.isCatalogSyncing) {
+                                TextButton(onClick = { viewModel.syncCatalogNow() }) {
+                                    Text("Aggiorna", fontWeight = FontWeight.Bold,
+                                        color = ExpiryWarningAmberText)
+                                }
+                            }
                         }
+
                         if (state.isCatalogSyncing) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                        } else {
-                            TextButton(onClick = { viewModel.syncCatalogNow() }) {
-                                Text("Aggiorna", fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            when (val prog = state.catalogSyncProgress) {
+                                is SyncProgress.Downloading -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "📥 Download: ${prog.downloadedMb} / ${prog.totalMb} MB",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium,
+                                            color = ExpiryWarningAmberText
+                                        )
+                                        Text(
+                                            text = "${prog.percentageInt}%",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ExpiryWarningAmberText
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    LinearProgressIndicator(
+                                        progress = { prog.progressFraction },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(6.dp),
+                                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                }
+
+                                is SyncProgress.Importing -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "⚙️ Caricamento DB: ${prog.formattedImportedCount} record",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium,
+                                            color = ExpiryWarningAmberText
+                                        )
+                                        prog.percentageInt?.let { pct ->
+                                            Text(
+                                                text = "$pct%",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    val frac = prog.progressFraction
+                                    if (frac != null) {
+                                        LinearProgressIndicator(
+                                            progress = { frac },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(6.dp),
+                                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                    } else {
+                                        LinearProgressIndicator(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(6.dp),
+                                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                    }
+                                }
+
+                                null -> {
+                                    LinearProgressIndicator(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(6.dp),
+                                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                }
                             }
                         }
                     }
@@ -146,7 +235,7 @@ fun ListsScreen(
         )
     }
 
-    // Error Snackbar
+    // Error Dialog
     state.errorMessage?.let { error ->
         AlertDialog(
             onDismissRequest = { viewModel.clearError() },
@@ -214,7 +303,7 @@ fun ListCard(
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "${item.totalCount} farmaci",
+                        text = "${item.totalCount} prodotti",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium
                     )
@@ -253,7 +342,7 @@ fun CreateListDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Nuova Lista Farmaci") },
+        title = { Text("Nuova Lista") },
         text = {
             Column {
                 OutlinedTextField(
@@ -299,7 +388,7 @@ fun PrivacyConsentDialog(
         title = { Text("Informativa Privacy e Condivisione") },
         text = {
             Text(
-                "Attivando la condivisione su Google Drive, i dati relativi ai farmaci posseduti in questa lista (nomi dei medicinali, date di scadenza, dosaggi e note) verranno salvati su Google Drive in un file JSON dedicato e saranno accessibili a chiunque abbia accesso alla cartella condivisa.\n\n" +
+                "Attivando la condivisione su Google Drive, i dati relativi ai farmaci e dispositivi medici posseduti in questa lista verranno salvati su Google Drive in un file JSON dedicato e saranno accessibili a chiunque abbia accesso alla cartella condivisa.\n\n" +
                 "Trattandosi di dati sanitari personali, ti chiediamo di confermare il tuo consenso esplicito prima di procedere."
             )
         },
@@ -315,3 +404,4 @@ fun PrivacyConsentDialog(
         }
     )
 }
+

@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import eu.frigo.farmafacile.domain.model.SyncProgress
 import eu.frigo.farmafacile.presentation.screens.lists.PrivacyConsentDialog
 import eu.frigo.farmafacile.presentation.theme.ExpiryWarningAmber
 import eu.frigo.farmafacile.presentation.theme.ExpiryWarningAmberContainer
@@ -30,6 +31,10 @@ fun SettingsScreen(
         .withZone(ZoneId.systemDefault())
 
     val lastUpdatedText = state.lastUpdatedTimestamp?.let {
+        dateFormatter.format(Instant.ofEpochMilli(it))
+    } ?: "Mai sincronizzato"
+
+    val devicesLastUpdatedText = state.devicesLastUpdatedTimestamp?.let {
         dateFormatter.format(Instant.ofEpochMilli(it))
     } ?: "Mai sincronizzato"
 
@@ -57,7 +62,7 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // AIFA Database Section
+            // 1. AIFA Database Section
             Text("Catalogo Farmaci AIFA", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 
             Card(
@@ -72,7 +77,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column {
-                            Text("Ultimo aggiornamento:", style = MaterialTheme.typography.bodyMedium)
+                            Text("Ultimo aggiornamento AIFA:", style = MaterialTheme.typography.bodyMedium)
                             Text(lastUpdatedText, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
                         }
                         Text("${state.totalCatalogCount} record", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
@@ -92,7 +97,7 @@ fun SettingsScreen(
                                 Icon(Icons.Default.Warning, contentDescription = null, tint = ExpiryWarningAmber)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    "Catalogo più vecchio di 45 giorni.",
+                                    "Catalogo AIFA più vecchio di 45 giorni.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = ExpiryWarningAmber,
                                     fontWeight = FontWeight.Bold
@@ -103,16 +108,16 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Button(
-                        onClick = { viewModel.syncAifaCatalogNow() },
-                        enabled = !state.isSyncing,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        if (state.isSyncing) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Download e importazione in corso...")
-                        } else {
+                    if (state.isSyncing) {
+                        SyncProgressIndicator(
+                            progress = state.aifaProgress,
+                            defaultMessage = "Preparazione download AIFA..."
+                        )
+                    } else {
+                        Button(
+                            onClick = { viewModel.syncAifaCatalogNow() },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Icon(Icons.Default.CloudDownload, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Aggiorna Catalogo AIFA Ora")
@@ -121,10 +126,53 @@ fun SettingsScreen(
                 }
             }
 
-            Divider()
+            HorizontalDivider()
 
-            // Expiry Notifications Section
-            Text("Notifiche Scadenza Farmaci", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            // 2. Medical Devices Section (Ministero della Salute)
+            Text("Dispositivi Medici (Ministero della Salute)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Ultimo aggiornamento Dispositivi:", style = MaterialTheme.typography.bodyMedium)
+                            Text(devicesLastUpdatedText, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                        }
+                        Text("${state.totalDevicesCount} dispositivi", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    if (state.isSyncingDevices) {
+                        SyncProgressIndicator(
+                            progress = state.devicesProgress,
+                            defaultMessage = "Preparazione download dispositivi medici..."
+                        )
+                    } else {
+                        Button(
+                            onClick = { viewModel.syncMedicalDevicesNow() },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.MedicalServices, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Aggiorna Catalogo Dispositivi Medici")
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider()
+
+            // 3. Expiry Notifications Section
+            Text("Notifiche Scadenza", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -152,9 +200,9 @@ fun SettingsScreen(
                 }
             }
 
-            Divider()
+            HorizontalDivider()
 
-            // Google Drive Sync & Privacy Section
+            // 4. Google Drive Sync & Privacy Section
             Text("Condivisione Google Drive & Privacy", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 
             Card(
@@ -231,5 +279,103 @@ fun SettingsScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+fun SyncProgressIndicator(
+    progress: SyncProgress?,
+    defaultMessage: String
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        when (progress) {
+            is SyncProgress.Downloading -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "📥 Download in corso (${progress.downloadedMb} / ${progress.totalMb} MB)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "${progress.percentageInt}%",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                LinearProgressIndicator(
+                    progress = { progress.progressFraction },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp),
+                    trackColor = MaterialTheme.colorScheme.primaryContainer,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            is SyncProgress.Importing -> {
+                val fraction = progress.progressFraction
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "⚙️ Caricamento nel database: ${progress.formattedImportedCount} record",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    progress.percentageInt?.let { pct ->
+                        Text(
+                            text = "$pct%",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                if (fraction != null) {
+                    LinearProgressIndicator(
+                        progress = { fraction },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp),
+                        trackColor = MaterialTheme.colorScheme.primaryContainer,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp),
+                        trackColor = MaterialTheme.colorScheme.primaryContainer,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            null -> {
+                Text(
+                    text = defaultMessage,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp),
+                    trackColor = MaterialTheme.colorScheme.primaryContainer,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
     }
 }
